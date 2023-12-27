@@ -1,1 +1,2 @@
 uWSGI==2.0.22
+watchdog[watchmedo]==3.0.0
