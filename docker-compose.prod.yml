@@ -1,81 +1,71 @@
 version: "3.9"
 
 x-querybook-image: &querybook-image querybook:latest
-
-x-querybook-depends-on: &querybook-depends-on
-    mysql:
-        condition: service_started
-    redis:
-        condition: service_started
-    elasticsearch:
-        condition: service_started
-
-x-querybook-volumes: &querybook-volumes
-    # This is to sync in live code change
-    - $PWD:/opt/querybook
-    - $PWD/docs_website/static/changelog:/opt/querybook/querybook/static/changelog
-    # See https://stackoverflow.com/questions/29181032/add-a-volume-to-docker-but-exclude-a-sub-folder
-    - /opt/querybook/node_modules/
-    # Make sure the build files don't leak back
-    - /opt/querybook/dist/
-    - $PWD/containers/bundled_querybook_config.yaml:/opt/querybook/querybook/config/querybook_config.yaml
-    # - file:/opt/store/
+x-querybook-common: &querybook-common
+    image: *querybook-image
+    tty: true
+    stdin_open: true
+    environment:
+        DATABASE_CONN: 'mysql+pymysql://mysql:mysql@mysql:3306/querybook2?charset=utf8mb4'
+    depends_on:
+        mysql:
+            condition: service_started
+        redis:
+            condition: service_started
+        elasticsearch:
+            condition: service_started
+    volumes:
+        # This is to sync in live code change
+        - $PWD:/opt/querybook
+        - $PWD/docs_website/static/changelog:/opt/querybook/querybook/static/changelog
+        # See https://stackoverflow.com/questions/29181032/add-a-volume-to-docker-but-exclude-a-sub-folder
+        - /opt/querybook/node_modules/
+        # Make sure the build files don't leak back
+        - /opt/querybook/dist/
+        - $PWD/containers/bundled_querybook_config.yaml:/opt/querybook/querybook/config/querybook_config.yaml
+        # - file:/opt/store/
 
 services:
     web:
+        <<: *querybook-common
         container_name: querybook_web
-        image: *querybook-image
-        tty: true
-        stdin_open: true
         command: './querybook/scripts/bundled_docker_run_web --initdb --initweb'
         ports:
             - '${PORT:-10001}:${PORT:-10001}'
-        expose:
-            - '${PORT:-10001}'
         environment:
             PORT: '${PORT:-10001}'
             APIPORT: '${APIPORT:-3000}'
             HOT_RELOAD: '${HOT_RELOAD:-true}'
         restart: 'always'
-        volumes: *querybook-volumes
-        depends_on: *querybook-depends-on
-
+ 
     worker:
+        <<: *querybook-common
         container_name: querybook_worker
-        image: *querybook-image
-        tty: true
-        stdin_open: true
         command: './querybook/scripts/runservice worker -c 5'
-        volumes: *querybook-volumes
-        depends_on: *querybook-depends-on
 
     scheduler:
+        <<: *querybook-common
         container_name: querybook_scheduler
-        image: *querybook-image
-        tty: true
-        stdin_open: true
         command: './querybook/scripts/runservice scheduler --pidfile="/opt/celerybeat.pid"'
-        volumes: *querybook-volumes
-        depends_on: *querybook-depends-on
 
     redis:
-        container_name: querybook_redis
         image: redis/redis-stack-server:latest
+        container_name: querybook_redis
         restart: always
         command: ['redis-server', '--appendonly', 'yes']
         ports:
             - '6379:6379'
 
     mysql:
-        container_name: querybook_mysql
         image: mysql:8.2
+        container_name: querybook_mysql
         restart: always
         command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci']
         environment:
             MYSQL_HOST: 'mysql:3306'
             MYSQL_DATABASE: 'querybook2'
-            MYSQL_USER: 'test'
-            MYSQL_PASSWORD: 'passw0rd'
+            MYSQL_USER: 'mysql'
+            MYSQL_PASSWORD: 'mysql'
             MYSQL_ROOT_HOST: '%'
             MYSQL_ROOT_PASSWORD: 'hunter2'
         ports:
@@ -84,8 +74,8 @@ services:
             - querybook-mysql:/var/lib/mysql
 
     elasticsearch:
-        container_name: querybook_elasticsearch
         image: opensearchproject/opensearch:2.11.0
+        container_name: querybook_elasticsearch
         environment:
             cluster.name: docker-cluster
             bootstrap.memory_lock: 'true'
